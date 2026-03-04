@@ -12,6 +12,7 @@ Sentinel is an MVP desktop AI assistant for Windows that answers questions about
 ## Project Layout
 
 - `src-tauri/`: Rust backend and Tauri shell
+- `src-tauri/src/platform/`: OS-specific capture implementations (`windows.rs`, `macos.rs`)
 - `ui/`: React frontend
 - `shared/`: shared TypeScript types
 
@@ -42,6 +43,7 @@ cargo tauri dev
 ## Notes
 
 - This MVP is read-only. It never clicks, types, or performs OS actions.
-- Window capture uses `GetForegroundWindow` and `GetWindowRect`.
+- Windows capture uses `GetForegroundWindow` and `GetWindowRect`.
 - Screenshot capture grabs the containing display, then crops to the foreground window bounds.
 - Multi-monitor handling is basic but functional for the common case where the foreground window is mostly on one display.
+- `src-tauri/src/platform/macos.rs` is a placeholder for future macOS implementation.

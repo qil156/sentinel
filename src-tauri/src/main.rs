@@ -1,13 +1,13 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(all(not(debug_assertions), target_os = "windows"), windows_subsystem = "windows")]
 
-mod capture;
 mod context;
 mod llm;
+mod platform;
 mod types;
 
-use crate::capture::ExclusionRect;
 use crate::context::build_screen_context;
 use crate::llm::ask_openai;
+use crate::platform::ExclusionRect;
 use crate::types::AssistantResponse;
 
 #[tauri::command]

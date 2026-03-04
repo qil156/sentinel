@@ -1,6 +1,6 @@
 use anyhow::Result;
 
-use crate::capture::{capture_foreground_window, ExclusionRect};
+use crate::platform::{capture_foreground_window, ExclusionRect};
 use crate::types::ScreenContext;
 
 pub fn build_screen_context(exclusions: &[ExclusionRect]) -> Result<ScreenContext> {

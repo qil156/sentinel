@@ -9,18 +9,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     IsIconic, IsWindowVisible, GW_HWNDNEXT,
 };
 
-pub struct ForegroundCapture {
-    pub window_title: String,
-    pub image_base64: String,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct ExclusionRect {
-    pub left: i32,
-    pub top: i32,
-    pub right: i32,
-    pub bottom: i32,
-}
+use super::{ExclusionRect, ForegroundCapture};
 
 pub fn capture_foreground_window(exclusions: &[ExclusionRect]) -> Result<ForegroundCapture> {
     let hwnd = resolve_capture_window()?;
