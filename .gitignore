@@ -1,0 +1,16 @@
+# Node / frontend
+ui/node_modules/
+ui/dist/
+npm-debug.log*
+
+# Rust / Tauri
+src-tauri/target/
+
+# Local secrets / env
+.env
+.env.*
+*.env
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
