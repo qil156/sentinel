@@ -1,19 +1,38 @@
-import { FormEvent, KeyboardEvent, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { AssistantResponse, ChatMessage } from "../../shared/types";
 
 export function App() {
   const formRef = useRef<HTMLFormElement>(null);
   const [question, setQuestion] = useState("");
+  const [apiKeyInput, setApiKeyInput] = useState("");
+  const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
+  const [isSavingApiKey, setIsSavingApiKey] = useState(false);
+  const [showApiKeyPanel, setShowApiKeyPanel] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function checkApiKey() {
+      try {
+        const exists = await invoke<boolean>("has_api_key");
+        setHasApiKey(exists);
+        setShowApiKeyPanel(!exists);
+      } catch {
+        setHasApiKey(false);
+        setShowApiKeyPanel(true);
+      }
+    }
+
+    void checkApiKey();
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const trimmed = question.trim();
-    if (!trimmed || isLoading) {
+    if (!trimmed || isLoading || !hasApiKey) {
       return;
     }
 
@@ -60,6 +79,32 @@ export function App() {
     }
   }
 
+  async function handleSaveApiKey(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const trimmed = apiKeyInput.trim();
+    if (!trimmed || isSavingApiKey) {
+      return;
+    }
+
+    setError(null);
+    setIsSavingApiKey(true);
+    try {
+      await invoke("save_api_key", { api_key: trimmed });
+      setHasApiKey(true);
+      setShowApiKeyPanel(false);
+      setApiKeyInput("");
+    } catch (invokeError) {
+      const message =
+        invokeError instanceof Error
+          ? invokeError.message
+          : "Could not save API key.";
+      setError(message);
+    } finally {
+      setIsSavingApiKey(false);
+    }
+  }
+
   return (
     <main className="shell">
       <section className="widget">
@@ -68,8 +113,32 @@ export function App() {
             <p className="eyebrow">Screen-aware assistant</p>
             <h1>Sentinel</h1>
           </div>
-          <span className="status">{isLoading ? "Analyzing" : "Idle"}</span>
+          <div className="header-actions">
+            <button className="api-key-toggle" onClick={() => setShowApiKeyPanel((v) => !v)} type="button">
+              API Key
+            </button>
+            <span className="status">{isLoading ? "Analyzing" : "Idle"}</span>
+          </div>
         </header>
+
+        {showApiKeyPanel ? (
+          <section className="api-key-panel">
+            <h2>Set OpenAI API Key</h2>
+            <p>Sentinel stores your key locally and uses it for all requests from this app.</p>
+            <form onSubmit={handleSaveApiKey}>
+              <input
+                aria-label="OpenAI API key"
+                placeholder="sk-..."
+                type="password"
+                value={apiKeyInput}
+                onChange={(event) => setApiKeyInput(event.target.value)}
+              />
+              <button disabled={isSavingApiKey || apiKeyInput.trim().length === 0} type="submit">
+                {isSavingApiKey ? "Saving..." : "Save Key"}
+              </button>
+            </form>
+          </section>
+        ) : null}
 
         <div className="messages">
           {messages.length === 0 ? (
@@ -102,7 +171,7 @@ export function App() {
             onChange={(event) => setQuestion(event.target.value)}
             onKeyDown={handleComposerKeyDown}
           />
-          <button disabled={isLoading || question.trim().length === 0} type="submit">
+          <button disabled={isLoading || !hasApiKey || question.trim().length === 0} type="submit">
             Send
           </button>
         </form>

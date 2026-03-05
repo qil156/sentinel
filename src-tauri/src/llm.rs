@@ -10,8 +10,7 @@ use crate::types::{
 const OPENAI_API_URL: &str = "https://api.openai.com/v1/responses";
 const MODEL_NAME: &str = "gpt-5.3-codex";
 
-pub async fn ask_openai(question: &str, context: &ScreenContext) -> Result<AssistantResponse> {
-    let api_key = std::env::var("OPENAI_API_KEY").context("OPENAI_API_KEY is not set.")?;
+pub async fn ask_openai(question: &str, context: &ScreenContext, api_key: &str) -> Result<AssistantResponse> {
     let client = reqwest::Client::new();
 
     let payload = OpenAiRequest {
