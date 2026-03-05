@@ -90,7 +90,7 @@ export function App() {
     setError(null);
     setIsSavingApiKey(true);
     try {
-      await invoke("save_api_key", { api_key: trimmed });
+      await invoke("save_api_key", { api_key: trimmed, apiKey: trimmed });
       setHasApiKey(true);
       setShowApiKeyPanel(false);
       setApiKeyInput("");
@@ -98,7 +98,9 @@ export function App() {
       const message =
         invokeError instanceof Error
           ? invokeError.message
-          : "Could not save API key.";
+          : typeof invokeError === "string"
+            ? invokeError
+            : `Could not save API key: ${JSON.stringify(invokeError)}`;
       setError(message);
     } finally {
       setIsSavingApiKey(false);

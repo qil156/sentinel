@@ -55,9 +55,13 @@ pub fn resolve_api_key(app: &tauri::AppHandle) -> Result<String> {
 }
 
 fn key_file_path(app: &tauri::AppHandle) -> Result<PathBuf> {
-    let app_data_dir = app
+    if let Ok(app_data_dir) = app.path().app_data_dir() {
+        return Ok(app_data_dir.join(API_KEY_FILE));
+    }
+
+    let app_config_dir = app
         .path()
-        .app_data_dir()
-        .context("Could not resolve app data directory.")?;
-    Ok(app_data_dir.join(API_KEY_FILE))
+        .app_config_dir()
+        .context("Could not resolve app data/config directory.")?;
+    Ok(app_config_dir.join(API_KEY_FILE))
 }
