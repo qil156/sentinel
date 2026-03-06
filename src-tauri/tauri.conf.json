@@ -16,7 +16,7 @@
         "width": 520,
         "height": 780,
         "resizable": true,
-        "alwaysOnTop": true
+        "alwaysOnTop": false
       }
     ],
     "security": {

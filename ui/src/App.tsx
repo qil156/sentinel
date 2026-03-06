@@ -9,6 +9,7 @@ import type {
 
 export function App() {
   const formRef = useRef<HTMLFormElement>(null);
+  const messagesRef = useRef<HTMLDivElement>(null);
   const [question, setQuestion] = useState("");
   const [apiKeyInput, setApiKeyInput] = useState("");
   const [options, setOptions] = useState<ProviderModelOption[]>([]);
@@ -63,6 +64,14 @@ export function App() {
 
     void boot();
   }, []);
+
+  useEffect(() => {
+    const container = messagesRef.current;
+    if (!container) {
+      return;
+    }
+    container.scrollTop = container.scrollHeight;
+  }, [messages, isLoading]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -256,7 +265,7 @@ export function App() {
           </section>
         ) : null}
 
-        <div className="messages">
+        <div className="messages" ref={messagesRef}>
           {messages.length === 0 ? (
             <div className="empty-state">
               Ask about the active window. Sentinel will capture the foreground window and answer using the visible

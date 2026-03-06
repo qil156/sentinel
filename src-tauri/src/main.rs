@@ -13,6 +13,8 @@ use crate::context::build_screen_context;
 use crate::llm::ask_with_provider;
 use crate::platform::ExclusionRect;
 use crate::types::{AssistantResponse, ProviderModelOption, UserLlmSettings};
+use tauri::{Manager, WindowEvent};
+use std::time::Duration;
 
 #[tauri::command]
 async fn ask_about_screen(
@@ -70,6 +72,25 @@ fn sentinel_window_rect(window: &tauri::WebviewWindow) -> Option<ExclusionRect> 
 
 fn main() {
     tauri::Builder::default()
+        .setup(|app| {
+            if let Some(window) = app.get_webview_window("main") {
+                let tracked = window.clone();
+                window.on_window_event(move |event| {
+                    if matches!(event, WindowEvent::Focused(false)) {
+                        let delayed = tracked.clone();
+                        tauri::async_runtime::spawn(async move {
+                            tokio::time::sleep(Duration::from_millis(220)).await;
+                            let still_unfocused = delayed.is_focused().map(|focused| !focused).unwrap_or(false);
+                            let already_minimized = delayed.is_minimized().unwrap_or(false);
+                            if still_unfocused && !already_minimized {
+                                let _ = delayed.minimize();
+                            }
+                        });
+                    }
+                });
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             ask_about_screen,
             has_api_key,
