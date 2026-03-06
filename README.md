@@ -1,49 +1,67 @@
 # Sentinel
 
-Sentinel is an MVP desktop AI assistant for Windows that answers questions about the current foreground window.
+Sentinel is a desktop AI assistant for Windows.  
+It reads the current screen context and answers your question in chat.
 
-## What It Does
+## What Sentinel Does
 
-1. The user asks a question in a floating chat widget.
-2. The backend captures the current foreground window.
-3. The app sends the question, screenshot, and window title to the OpenAI Responses API.
-4. The UI renders the structured JSON result.
+1. You ask a question in the floating chat window.
+2. Sentinel captures the current foreground app window.
+3. Sentinel sends your question + screenshot context to the selected AI model.
+4. Sentinel returns:
+   - `screen_summary`
+   - `answer`
+   - `suggested_next_steps`
+   - `questions_to_clarify`
+   - `confidence`
 
-## Project Layout
+## Install
 
-- `src-tauri/`: Rust backend and Tauri shell
-- `src-tauri/src/platform/`: OS-specific capture implementations (`windows.rs`, `macos.rs`)
-- `ui/`: React frontend
-- `shared/`: shared TypeScript types
+Install Sentinel from the latest release asset:
 
-## Environment
+- `.exe` setup installer (recommended)
+- `.msi` installer
+- `.zip` portable package
 
-Set `OPENAI_API_KEY` before launching the Tauri app.
+After installation, launch Sentinel from Start Menu (or run `sentinel.exe` for portable mode).
 
-PowerShell:
+## First-Time Setup
 
-```powershell
-$env:OPENAI_API_KEY="sk-..."
-```
+1. Open Sentinel.
+2. Click `Settings` in the top-right.
+3. Choose Provider and Model.
+4. Enter your API key for the selected provider.
+5. Click `Save Key`.
 
-## Run
+Notes:
 
-From `sentinel/ui`:
+- API key is stored locally on your machine.
+- You usually only need to set it once per provider.
 
-```powershell
-npm install
-```
+## Daily Usage
 
-From `sentinel/src-tauri`:
+1. Keep Sentinel open as a floating window.
+2. Switch to the app/screen you want help with.
+3. Type your question and press:
+   - `Enter` to send
+   - `Shift + Enter` for new line
+4. Read the structured response in chat.
 
-```powershell
-cargo tauri dev
-```
+## Safety
 
-## Notes
+- Sentinel is read-only.
+- It does not click, type, or perform actions on your computer.
+- It only captures screen context and provides suggestions.
 
-- This MVP is read-only. It never clicks, types, or performs OS actions.
-- Windows capture uses `GetForegroundWindow` and `GetWindowRect`.
-- Screenshot capture grabs the containing display, then crops to the foreground window bounds.
-- Multi-monitor handling is basic but functional for the common case where the foreground window is mostly on one display.
-- `src-tauri/src/platform/macos.rs` is a placeholder for future macOS implementation.
+## Troubleshooting
+
+- `No API key configured for selected provider`
+  - Open `Settings` and save a key for the current provider.
+
+- Provider not available yet
+  - Some providers/models are listed as coming soon in this build.
+  - Use an available OpenAI model for now.
+
+- Windows SmartScreen warning
+  - Because Sentinel is a new app, Windows may show a warning.
+  - Click `More info` → `Run anyway`.
