@@ -52,10 +52,11 @@ export function App() {
         setSettings(userSettings);
         setShowApiKeyPanel(!userSettings.has_selected_provider_key);
       } catch (invokeError) {
-        const message =
+        const message = toDisplayError(
           invokeError instanceof Error
             ? invokeError.message
-            : "Could not load model settings.";
+            : "Could not load model settings."
+        );
         setError(message);
       }
     }
@@ -97,12 +98,13 @@ export function App() {
         }
       ]);
     } catch (invokeError) {
-      const message =
+      const message = toDisplayError(
         invokeError instanceof Error
           ? invokeError.message
           : typeof invokeError === "string"
             ? invokeError
-            : `Sentinel could not process the current screen: ${JSON.stringify(invokeError)}`;
+            : `Sentinel could not process the current screen: ${JSON.stringify(invokeError)}`
+      );
       setError(message);
     } finally {
       setIsLoading(false);
@@ -134,10 +136,11 @@ export function App() {
       setSettings(updated);
       setShowApiKeyPanel(!updated.has_selected_provider_key);
     } catch (invokeError) {
-      const message =
+      const message = toDisplayError(
         invokeError instanceof Error
           ? invokeError.message
-          : "Could not update model selection.";
+          : "Could not update model selection."
+      );
       setError(message);
     }
   }
@@ -175,12 +178,13 @@ export function App() {
       setShowApiKeyPanel(false);
       setApiKeyInput("");
     } catch (invokeError) {
-      const message =
+      const message = toDisplayError(
         invokeError instanceof Error
           ? invokeError.message
           : typeof invokeError === "string"
             ? invokeError
-            : `Could not save API key: ${JSON.stringify(invokeError)}`;
+            : `Could not save API key: ${JSON.stringify(invokeError)}`
+      );
       setError(message);
     } finally {
       setIsSavingApiKey(false);
@@ -291,6 +295,21 @@ export function App() {
       </section>
     </main>
   );
+}
+
+function toDisplayError(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return "Unexpected error.";
+  }
+
+  const compact = trimmed.replace(/\s+/g, " ");
+  const maxLength = 320;
+  if (compact.length <= maxLength) {
+    return compact;
+  }
+
+  return `${compact.slice(0, maxLength)}...`;
 }
 
 function StructuredResponseCard({ response }: { response: AssistantResponse }) {

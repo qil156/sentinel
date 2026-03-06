@@ -65,28 +65,21 @@ pub fn list_model_options() -> Vec<ProviderModelOption> {
             provider_label: "Claude".to_string(),
             model_id: "claude-sonnet-4-5".to_string(),
             model_label: "claude-sonnet-4-5".to_string(),
-            is_available: false,
+            is_available: true,
         },
         ProviderModelOption {
             provider_id: "google".to_string(),
             provider_label: "Gemini".to_string(),
             model_id: "gemini-2.0-flash".to_string(),
             model_label: "gemini-2.0-flash".to_string(),
-            is_available: false,
+            is_available: true,
         },
         ProviderModelOption {
             provider_id: "deepseek".to_string(),
             provider_label: "DeepSeek".to_string(),
             model_id: "deepseek-chat".to_string(),
             model_label: "deepseek-chat".to_string(),
-            is_available: false,
-        },
-        ProviderModelOption {
-            provider_id: "xai".to_string(),
-            provider_label: "Grok".to_string(),
-            model_id: "grok-2-latest".to_string(),
-            model_label: "grok-2-latest".to_string(),
-            is_available: false,
+            is_available: true,
         },
     ]
 }
@@ -100,8 +93,8 @@ pub fn save_user_api_key(app: &tauri::AppHandle, provider: &str, api_key: &str) 
     if trimmed.is_empty() {
         return Err(anyhow!("API key cannot be empty."));
     }
-    if !trimmed.starts_with("sk-") {
-        return Err(anyhow!("API key should start with 'sk-'."));
+    if trimmed.len() < 10 {
+        return Err(anyhow!("API key looks too short."));
     }
 
     let mut settings = load_settings(app)?;
@@ -150,11 +143,46 @@ pub fn resolve_active_config(app: &tauri::AppHandle) -> Result<(String, String, 
     Ok((settings.selected_provider, settings.selected_model, key))
 }
 
+fn normalize_settings(settings: &mut PersistedSettings) -> bool {
+    let options = list_model_options();
+    let mut changed = false;
+
+    let provider_exists = options
+        .iter()
+        .any(|opt| opt.provider_id == settings.selected_provider);
+    if !provider_exists {
+        settings.selected_provider = DEFAULT_PROVIDER.to_string();
+        changed = true;
+    }
+
+    let model_valid_for_provider = options.iter().any(|opt| {
+        opt.provider_id == settings.selected_provider && opt.model_id == settings.selected_model
+    });
+    if !model_valid_for_provider {
+        if let Some(default_for_provider) = options
+            .iter()
+            .find(|opt| opt.provider_id == settings.selected_provider)
+        {
+            settings.selected_model = default_for_provider.model_id.clone();
+        } else {
+            settings.selected_provider = DEFAULT_PROVIDER.to_string();
+            settings.selected_model = DEFAULT_MODEL.to_string();
+        }
+        changed = true;
+    }
+
+    changed
+}
+
 fn load_settings(app: &tauri::AppHandle) -> Result<PersistedSettings> {
     let settings_path = settings_file_path(app)?;
     if settings_path.exists() {
         let raw = fs::read_to_string(&settings_path).context("Could not read settings file.")?;
-        let settings = serde_json::from_str::<PersistedSettings>(&raw).context("Settings file is invalid JSON.")?;
+        let mut settings =
+            serde_json::from_str::<PersistedSettings>(&raw).context("Settings file is invalid JSON.")?;
+        if normalize_settings(&mut settings) {
+            save_settings(app, &settings)?;
+        }
         return Ok(settings);
     }
 
@@ -170,6 +198,8 @@ fn load_settings(app: &tauri::AppHandle) -> Result<PersistedSettings> {
             }
         }
     }
+
+    normalize_settings(&mut settings);
 
     save_settings(app, &settings)?;
     Ok(settings)
