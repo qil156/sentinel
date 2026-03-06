@@ -10,7 +10,7 @@ use crate::api_key::{
     get_user_settings, has_user_api_key, list_model_options, resolve_active_config, save_user_api_key, set_active_model,
 };
 use crate::context::build_screen_context;
-use crate::llm::ask_openai;
+use crate::llm::ask_with_provider;
 use crate::platform::ExclusionRect;
 use crate::types::{AssistantResponse, ProviderModelOption, UserLlmSettings};
 
@@ -26,15 +26,9 @@ async fn ask_about_screen(
     let exclusions: Vec<ExclusionRect> = sentinel_window_rect(&window).into_iter().collect();
     let screen_context = build_screen_context(&exclusions).map_err(|err| err.to_string())?;
 
-    match provider.as_str() {
-        "openai" => ask_openai(&model, &question, &screen_context, &api_key)
-            .await
-            .map_err(|err| err.to_string()),
-        _ => Err(format!(
-            "Provider '{}' is not wired yet in this build. Use OpenAI for now.",
-            provider
-        )),
-    }
+    ask_with_provider(&provider, &model, &question, &screen_context, &api_key)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
