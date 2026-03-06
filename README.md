@@ -1,7 +1,19 @@
-# Sentinel
+# Sentinel AI
 
-Sentinel is a desktop AI assistant for Windows.  
-It reads the current screen context and answers your question in chat.
+Ask questions about your current screen.
+
+Sentinel captures the active window and uses AI to answer questions about it.
+
+Current status: Windows only. macOS version is in development.
+
+Examples:
+- How should I reply to this email?
+- Why is this pipeline failing?
+- What Excel formula should I use?
+
+![Sentinel Demo](./assets/sentinel-demo.gif)
+
+You must provide your own OpenAI API key.
 
 ## What Sentinel Does
 
@@ -37,6 +49,7 @@ Notes:
 
 - API key is stored locally on your machine.
 - You usually only need to set it once per provider.
+- You must provide your own OpenAI API key.
 
 ## Daily Usage
 
@@ -53,6 +66,14 @@ Notes:
 - It does not click, type, or perform actions on your computer.
 - It only captures screen context and provides suggestions.
 
+## Privacy
+
+Sentinel does NOT monitor your screen continuously.
+
+It only captures the active window when you send a question.
+
+No data is stored.
+
 ## Troubleshooting
 
 - `No API key configured for selected provider`
@@ -64,4 +85,4 @@ Notes:
 
 - Windows SmartScreen warning
   - Because Sentinel is a new app, Windows may show a warning.
-  - Click `More info` → `Run anyway`.
+  - Click `More info` -> `Run anyway`.
