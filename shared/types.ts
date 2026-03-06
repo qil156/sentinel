@@ -6,6 +6,20 @@ export type AssistantResponse = {
   confidence: number;
 };
 
+export type ProviderModelOption = {
+  provider_id: string;
+  provider_label: string;
+  model_id: string;
+  model_label: string;
+  is_available: boolean;
+};
+
+export type UserLlmSettings = {
+  selected_provider: string;
+  selected_model: string;
+  has_selected_provider_key: boolean;
+};
+
 export type ChatMessage =
   | {
       id: string;

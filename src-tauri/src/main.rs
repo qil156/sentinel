@@ -6,11 +6,13 @@ mod llm;
 mod platform;
 mod types;
 
-use crate::api_key::{has_user_api_key, resolve_api_key, save_user_api_key};
+use crate::api_key::{
+    get_user_settings, has_user_api_key, list_model_options, resolve_active_config, save_user_api_key, set_active_model,
+};
 use crate::context::build_screen_context;
 use crate::llm::ask_openai;
 use crate::platform::ExclusionRect;
-use crate::types::AssistantResponse;
+use crate::types::{AssistantResponse, ProviderModelOption, UserLlmSettings};
 
 #[tauri::command]
 async fn ask_about_screen(
@@ -18,12 +20,21 @@ async fn ask_about_screen(
     window: tauri::WebviewWindow,
     question: String,
 ) -> Result<AssistantResponse, String> {
+    // Validate provider/model/key first so auth/config errors are not masked by capture errors.
+    let (provider, model, api_key) = resolve_active_config(&app).map_err(|err| err.to_string())?;
+
     let exclusions: Vec<ExclusionRect> = sentinel_window_rect(&window).into_iter().collect();
     let screen_context = build_screen_context(&exclusions).map_err(|err| err.to_string())?;
-    let api_key = resolve_api_key(&app).map_err(|err| err.to_string())?;
-    ask_openai(&question, &screen_context, &api_key)
-        .await
-        .map_err(|err| err.to_string())
+
+    match provider.as_str() {
+        "openai" => ask_openai(&model, &question, &screen_context, &api_key)
+            .await
+            .map_err(|err| err.to_string()),
+        _ => Err(format!(
+            "Provider '{}' is not wired yet in this build. Use OpenAI for now.",
+            provider
+        )),
+    }
 }
 
 #[tauri::command]
@@ -32,8 +43,23 @@ fn has_api_key(app: tauri::AppHandle) -> Result<bool, String> {
 }
 
 #[tauri::command]
-fn save_api_key(app: tauri::AppHandle, api_key: String) -> Result<(), String> {
-    save_user_api_key(&app, &api_key).map_err(|err| err.to_string())
+fn save_api_key(app: tauri::AppHandle, provider: String, api_key: String) -> Result<(), String> {
+    save_user_api_key(&app, &provider, &api_key).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn get_user_llm_settings(app: tauri::AppHandle) -> Result<UserLlmSettings, String> {
+    get_user_settings(&app).map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+fn get_model_options() -> Vec<ProviderModelOption> {
+    list_model_options()
+}
+
+#[tauri::command]
+fn set_model_selection(app: tauri::AppHandle, provider: String, model: String) -> Result<UserLlmSettings, String> {
+    set_active_model(&app, &provider, &model).map_err(|err| err.to_string())
 }
 
 fn sentinel_window_rect(window: &tauri::WebviewWindow) -> Option<ExclusionRect> {
@@ -50,7 +76,14 @@ fn sentinel_window_rect(window: &tauri::WebviewWindow) -> Option<ExclusionRect> 
 
 fn main() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![ask_about_screen, has_api_key, save_api_key])
+        .invoke_handler(tauri::generate_handler![
+            ask_about_screen,
+            has_api_key,
+            save_api_key,
+            get_user_llm_settings,
+            get_model_options,
+            set_model_selection
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Sentinel");
 }

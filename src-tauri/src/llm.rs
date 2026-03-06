@@ -8,13 +8,17 @@ use crate::types::{
 };
 
 const OPENAI_API_URL: &str = "https://api.openai.com/v1/responses";
-const MODEL_NAME: &str = "gpt-5.3-codex";
 
-pub async fn ask_openai(question: &str, context: &ScreenContext, api_key: &str) -> Result<AssistantResponse> {
+pub async fn ask_openai(
+    model: &str,
+    question: &str,
+    context: &ScreenContext,
+    api_key: &str,
+) -> Result<AssistantResponse> {
     let client = reqwest::Client::new();
 
     let payload = OpenAiRequest {
-        model: MODEL_NAME.to_string(),
+        model: model.to_string(),
         input: vec![
             OpenAiInputItem {
                 role: "system".to_string(),
@@ -57,12 +61,11 @@ pub async fn ask_openai(question: &str, context: &ScreenContext, api_key: &str) 
         .context("OpenAI request failed.")?;
 
     if !response.status().is_success() {
-        let status = response.status();
         let body = response
             .text()
             .await
-            .unwrap_or_else(|_| "Could not read error body.".to_string());
-        return Err(anyhow!("OpenAI request failed with status {status}: {body}"));
+            .unwrap_or_else(|_| "OpenAI request failed.".to_string());
+        return Err(anyhow!(extract_error_message(&body)));
     }
 
     let body: Value = response.json().await.context("OpenAI response JSON was invalid.")?;
@@ -132,4 +135,18 @@ fn response_schema() -> Value {
 
 fn system_prompt() -> &'static str {
     "You are Sentinel, a Windows desktop assistant that answers questions about the current screen. You only observe the provided screenshot and window title. You never take actions. Return a JSON object that matches the provided schema. Keep the answer factual, concise, and grounded in visible UI evidence. If the screenshot is unclear, lower confidence and add clarifying questions."
+}
+
+fn extract_error_message(body: &str) -> String {
+    if let Ok(value) = serde_json::from_str::<Value>(body) {
+        if let Some(message) = value
+            .get("error")
+            .and_then(|error| error.get("message"))
+            .and_then(Value::as_str)
+        {
+            return message.to_string();
+        }
+    }
+
+    body.trim().to_string()
 }

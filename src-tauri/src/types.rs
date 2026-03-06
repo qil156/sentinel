@@ -50,3 +50,19 @@ pub struct OpenAiJsonSchemaFormat {
     pub strict: bool,
     pub schema: serde_json::Value,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderModelOption {
+    pub provider_id: String,
+    pub provider_label: String,
+    pub model_id: String,
+    pub model_label: String,
+    pub is_available: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserLlmSettings {
+    pub selected_provider: String,
+    pub selected_model: String,
+    pub has_selected_provider_key: bool,
+}

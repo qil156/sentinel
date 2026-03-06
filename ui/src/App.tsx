@@ -1,38 +1,73 @@
-import { FormEvent, KeyboardEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { AssistantResponse, ChatMessage } from "../../shared/types";
+import type {
+  AssistantResponse,
+  ChatMessage,
+  ProviderModelOption,
+  UserLlmSettings
+} from "../../shared/types";
 
 export function App() {
   const formRef = useRef<HTMLFormElement>(null);
   const [question, setQuestion] = useState("");
   const [apiKeyInput, setApiKeyInput] = useState("");
-  const [hasApiKey, setHasApiKey] = useState<boolean | null>(null);
+  const [options, setOptions] = useState<ProviderModelOption[]>([]);
+  const [settings, setSettings] = useState<UserLlmSettings | null>(null);
   const [isSavingApiKey, setIsSavingApiKey] = useState(false);
   const [showApiKeyPanel, setShowApiKeyPanel] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const providerOptions = useMemo(() => {
+    const map = new Map<string, { id: string; label: string; available: boolean }>();
+    options.forEach((opt) => {
+      if (!map.has(opt.provider_id)) {
+        map.set(opt.provider_id, {
+          id: opt.provider_id,
+          label: opt.provider_label,
+          available: opt.is_available
+        });
+      } else if (opt.is_available) {
+        const current = map.get(opt.provider_id)!;
+        map.set(opt.provider_id, { ...current, available: true });
+      }
+    });
+    return Array.from(map.values());
+  }, [options]);
+
+  const modelOptions = useMemo(
+    () => options.filter((opt) => opt.provider_id === settings?.selected_provider),
+    [options, settings?.selected_provider]
+  );
+
   useEffect(() => {
-    async function checkApiKey() {
+    async function boot() {
       try {
-        const exists = await invoke<boolean>("has_api_key");
-        setHasApiKey(exists);
-        setShowApiKeyPanel(!exists);
-      } catch {
-        setHasApiKey(false);
-        setShowApiKeyPanel(true);
+        const [catalog, userSettings] = await Promise.all([
+          invoke<ProviderModelOption[]>("get_model_options"),
+          invoke<UserLlmSettings>("get_user_llm_settings")
+        ]);
+        setOptions(catalog);
+        setSettings(userSettings);
+        setShowApiKeyPanel(!userSettings.has_selected_provider_key);
+      } catch (invokeError) {
+        const message =
+          invokeError instanceof Error
+            ? invokeError.message
+            : "Could not load model settings.";
+        setError(message);
       }
     }
 
-    void checkApiKey();
+    void boot();
   }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const trimmed = question.trim();
-    if (!trimmed || isLoading || !hasApiKey) {
+    if (!trimmed || isLoading || !settings?.has_selected_provider_key) {
       return;
     }
 
@@ -65,10 +100,45 @@ export function App() {
       const message =
         invokeError instanceof Error
           ? invokeError.message
-          : "Sentinel could not process the current screen.";
+          : typeof invokeError === "string"
+            ? invokeError
+            : `Sentinel could not process the current screen: ${JSON.stringify(invokeError)}`;
       setError(message);
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function handleProviderChange(provider: string) {
+    const firstModel = options.find((opt) => opt.provider_id === provider);
+    if (!firstModel) {
+      return;
+    }
+    await updateModelSelection(provider, firstModel.model_id);
+  }
+
+  async function handleModelChange(model: string) {
+    if (!settings) {
+      return;
+    }
+    await updateModelSelection(settings.selected_provider, model);
+  }
+
+  async function updateModelSelection(provider: string, model: string) {
+    setError(null);
+    try {
+      const updated = await invoke<UserLlmSettings>("set_model_selection", {
+        provider,
+        model
+      });
+      setSettings(updated);
+      setShowApiKeyPanel(!updated.has_selected_provider_key);
+    } catch (invokeError) {
+      const message =
+        invokeError instanceof Error
+          ? invokeError.message
+          : "Could not update model selection.";
+      setError(message);
     }
   }
 
@@ -82,6 +152,10 @@ export function App() {
   async function handleSaveApiKey(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
+    if (!settings) {
+      return;
+    }
+
     const trimmed = apiKeyInput.trim();
     if (!trimmed || isSavingApiKey) {
       return;
@@ -90,8 +164,14 @@ export function App() {
     setError(null);
     setIsSavingApiKey(true);
     try {
-      await invoke("save_api_key", { api_key: trimmed, apiKey: trimmed });
-      setHasApiKey(true);
+      await invoke("save_api_key", {
+        provider: settings.selected_provider,
+        api_key: trimmed,
+        apiKey: trimmed
+      });
+
+      const refreshed = await invoke<UserLlmSettings>("get_user_llm_settings");
+      setSettings(refreshed);
       setShowApiKeyPanel(false);
       setApiKeyInput("");
     } catch (invokeError) {
@@ -117,7 +197,7 @@ export function App() {
           </div>
           <div className="header-actions">
             <button className="api-key-toggle" onClick={() => setShowApiKeyPanel((v) => !v)} type="button">
-              API Key
+              Settings
             </button>
             <span className="status">{isLoading ? "Analyzing" : "Idle"}</span>
           </div>
@@ -125,12 +205,42 @@ export function App() {
 
         {showApiKeyPanel ? (
           <section className="api-key-panel">
-            <h2>Set OpenAI API Key</h2>
-            <p>Sentinel stores your key locally and uses it for all requests from this app.</p>
+            <h2>Model & API Key</h2>
+            <p>Choose provider/model and save the API key for the selected provider.</p>
+            <div className="model-grid">
+              <label>
+                Provider
+                <select
+                  value={settings?.selected_provider ?? ""}
+                  onChange={(event) => void handleProviderChange(event.target.value)}
+                >
+                  {providerOptions.map((provider) => (
+                    <option key={provider.id} value={provider.id}>
+                      {provider.label}
+                      {provider.available ? "" : " (Coming soon)"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Model
+                <select
+                  value={settings?.selected_model ?? ""}
+                  onChange={(event) => void handleModelChange(event.target.value)}
+                >
+                  {modelOptions.map((model) => (
+                    <option key={`${model.provider_id}:${model.model_id}`} value={model.model_id}>
+                      {model.model_label}
+                      {model.is_available ? "" : " (Coming soon)"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
             <form onSubmit={handleSaveApiKey}>
               <input
-                aria-label="OpenAI API key"
-                placeholder="sk-..."
+                aria-label="Provider API key"
+                placeholder={`${settings?.selected_provider ?? "provider"} API key`}
                 type="password"
                 value={apiKeyInput}
                 onChange={(event) => setApiKeyInput(event.target.value)}
@@ -145,7 +255,8 @@ export function App() {
         <div className="messages">
           {messages.length === 0 ? (
             <div className="empty-state">
-              Ask about the active window. Sentinel will capture the foreground window and answer using the visible screen context.
+              Ask about the active window. Sentinel will capture the foreground window and answer using the visible
+              screen context.
             </div>
           ) : (
             messages.map((message) =>
@@ -173,7 +284,7 @@ export function App() {
             onChange={(event) => setQuestion(event.target.value)}
             onKeyDown={handleComposerKeyDown}
           />
-          <button disabled={isLoading || !hasApiKey || question.trim().length === 0} type="submit">
+          <button disabled={isLoading || !settings?.has_selected_provider_key || question.trim().length === 0} type="submit">
             Send
           </button>
         </form>
