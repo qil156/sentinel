@@ -13,8 +13,8 @@ use crate::context::build_screen_context;
 use crate::llm::ask_with_provider;
 use crate::platform::ExclusionRect;
 use crate::types::{AssistantResponse, ProviderModelOption, UserLlmSettings};
-use tauri::{Manager, WindowEvent};
 use std::time::Duration;
+use tauri::{Manager, PhysicalPosition, Position, WindowEvent};
 
 #[tauri::command]
 async fn ask_about_screen(
@@ -70,10 +70,28 @@ fn sentinel_window_rect(window: &tauri::WebviewWindow) -> Option<ExclusionRect> 
     })
 }
 
+fn place_window_bottom_right(window: &tauri::WebviewWindow) {
+    let margin = 20_i32;
+    let monitor = match window.current_monitor() {
+        Ok(Some(monitor)) => monitor,
+        _ => return,
+    };
+    let window_size = match window.outer_size() {
+        Ok(size) => size,
+        Err(_) => return,
+    };
+    let monitor_size = monitor.size();
+
+    let x = (monitor_size.width as i32 - window_size.width as i32 - margin).max(0);
+    let y = (monitor_size.height as i32 - window_size.height as i32 - margin).max(0);
+    let _ = window.set_position(Position::Physical(PhysicalPosition::new(x, y)));
+}
+
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
+                place_window_bottom_right(&window);
                 let tracked = window.clone();
                 window.on_window_event(move |event| {
                     if matches!(event, WindowEvent::Focused(false)) {
