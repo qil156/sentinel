@@ -66,17 +66,26 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    scrollMessagesToBottom();
+  }, [messages]);
+
+  useEffect(() => {
+    if (!isLoading) {
+      return;
+    }
+    scrollMessagesToBottom();
+  }, [isLoading]);
+
+  function scrollMessagesToBottom() {
     const container = messagesRef.current;
     if (!container) {
       return;
     }
     container.scrollTop = container.scrollHeight;
-  }, [messages, isLoading]);
+  }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    const trimmed = question.trim();
+  async function sendQuestion(rawQuestion: string) {
+    const trimmed = rawQuestion.trim();
     if (!trimmed || isLoading || !settings?.has_selected_provider_key) {
       return;
     }
@@ -118,6 +127,11 @@ export function App() {
     } finally {
       setIsLoading(false);
     }
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await sendQuestion(question);
   }
 
   async function handleProviderChange(provider: string) {
@@ -279,11 +293,22 @@ export function App() {
                 </article>
               ) : (
                 <article className="bubble bubble-assistant" key={message.id}>
-                  <StructuredResponseCard response={message.response} />
+                  <StructuredResponseCard
+                    response={message.response}
+                  />
                 </article>
               )
             )
           )}
+          {isLoading ? (
+            <article className="bubble bubble-assistant loading-bubble">
+              <div className="loading-dots" aria-label="Loading answer" role="status">
+                <span />
+                <span />
+                <span />
+              </div>
+            </article>
+          ) : null}
         </div>
 
         {error ? <div className="error-banner">{error}</div> : null}
@@ -321,22 +346,111 @@ function toDisplayError(raw: string): string {
   return `${compact.slice(0, maxLength)}...`;
 }
 
-function StructuredResponseCard({ response }: { response: AssistantResponse }) {
+function StructuredResponseCard({
+  response
+}: {
+  response: AssistantResponse;
+}) {
+  const [animatedSummary, setAnimatedSummary] = useState("");
+  const [animatedAnswer, setAnimatedAnswer] = useState("");
+  const [visibleStepCount, setVisibleStepCount] = useState(0);
+  const [visibleQuestionCount, setVisibleQuestionCount] = useState(0);
+  const [animatedConfidence, setAnimatedConfidence] = useState(0);
+
+  useEffect(() => {
+    const summary = response.screen_summary ?? "";
+    const full = response.answer ?? "";
+    const steps = response.suggested_next_steps ?? [];
+    const questions = response.questions_to_clarify ?? [];
+    const targetConfidence = Math.round((response.confidence ?? 0) * 100);
+
+    setAnimatedSummary("");
+    setAnimatedAnswer("");
+    setVisibleStepCount(0);
+    setVisibleQuestionCount(0);
+    setAnimatedConfidence(0);
+
+    if (!summary && !full && steps.length === 0 && questions.length === 0) {
+      return;
+    }
+
+    let summaryIndex = 0;
+    let answerIndex = 0;
+    let stepIndex = 0;
+    let questionIndex = 0;
+    let confidenceValue = 0;
+    const summaryStep = Math.max(1, Math.ceil(summary.length / 40));
+    const answerStep = Math.max(1, Math.ceil(full.length / 90));
+    let phase: "summary" | "answer" | "steps" | "questions" | "confidence" | "done" = "summary";
+
+    const timer = window.setInterval(() => {
+      if (phase === "summary") {
+        summaryIndex = Math.min(summary.length, summaryIndex + summaryStep);
+        setAnimatedSummary(summary.slice(0, summaryIndex));
+        if (summaryIndex >= summary.length) {
+          phase = "answer";
+        }
+        return;
+      }
+
+      if (phase === "answer") {
+        answerIndex = Math.min(full.length, answerIndex + answerStep);
+        setAnimatedAnswer(full.slice(0, answerIndex));
+        if (answerIndex >= full.length) {
+          phase = "steps";
+        }
+        return;
+      }
+
+      if (phase === "steps") {
+        if (stepIndex < steps.length) {
+          stepIndex += 1;
+          setVisibleStepCount(stepIndex);
+        } else {
+          phase = "questions";
+        }
+        return;
+      }
+
+      if (phase === "questions") {
+        if (questionIndex < questions.length) {
+          questionIndex += 1;
+          setVisibleQuestionCount(questionIndex);
+        } else {
+          phase = "confidence";
+        }
+        return;
+      }
+
+      if (phase === "confidence") {
+        confidenceValue = Math.min(targetConfidence, confidenceValue + 4);
+        setAnimatedConfidence(confidenceValue);
+        if (confidenceValue >= targetConfidence) {
+          phase = "done";
+          window.clearInterval(timer);
+        }
+        return;
+      }
+    }, 24);
+
+    return () => window.clearInterval(timer);
+  }, [response]);
+
   return (
     <div className="response-card">
       <section>
         <h2>Screen Summary</h2>
-        <p>{response.screen_summary}</p>
+        <p>{animatedSummary}</p>
       </section>
       <section>
         <h2>Answer</h2>
-        <p>{response.answer}</p>
+        <p>{animatedAnswer}</p>
       </section>
       <section>
         <h2>Suggested Next Steps</h2>
         {response.suggested_next_steps.length > 0 ? (
           <ul>
-            {response.suggested_next_steps.map((step) => (
+            {response.suggested_next_steps.slice(0, visibleStepCount).map((step) => (
               <li key={step}>{step}</li>
             ))}
           </ul>
@@ -348,7 +462,7 @@ function StructuredResponseCard({ response }: { response: AssistantResponse }) {
         <h2>Questions To Clarify</h2>
         {response.questions_to_clarify.length > 0 ? (
           <ul>
-            {response.questions_to_clarify.map((item) => (
+            {response.questions_to_clarify.slice(0, visibleQuestionCount).map((item) => (
               <li key={item}>{item}</li>
             ))}
           </ul>
@@ -358,7 +472,7 @@ function StructuredResponseCard({ response }: { response: AssistantResponse }) {
       </section>
       <section className="confidence">
         <h2>Confidence</h2>
-        <p>{Math.round(response.confidence * 100)}%</p>
+        <p>{animatedConfidence}%</p>
       </section>
     </div>
   );

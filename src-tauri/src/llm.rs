@@ -345,7 +345,7 @@ fn gemini_response_schema() -> Value {
 }
 
 fn system_prompt() -> &'static str {
-    "You are Sentinel, a Windows desktop assistant that answers questions about the current screen. You only observe the provided screenshot and window title. You never take actions. Return a JSON object that matches the provided schema. Keep the answer factual, concise, and grounded in visible UI evidence. If the screenshot is unclear, lower confidence and add clarifying questions."
+    "You are Sentinel, a Windows desktop assistant that answers questions about the current screen. You only observe the provided screenshot and window title. You never take actions. Return JSON matching the required schema.\n\nFormatting rules:\n- screen_summary: one short sentence naming only the current page type (for example: email inbox, CI pipeline page, spreadsheet, chart dashboard).\n- answer: concise and factual, grounded only in visible UI evidence.\n- suggested_next_steps: direct imperative actions the user can do next. Do NOT use assistant-offer language such as 'if you want, I can...'.\n- questions_to_clarify: only include if needed.\n- confidence: 0 to 1."
 }
 
 fn user_prompt(question: &str, window_title: &str) -> String {
@@ -398,7 +398,7 @@ fn assistant_response_from_value(value: Value) -> Result<AssistantResponse> {
     let clean_summary = if screen_summary.is_empty() {
         "The model returned an unstructured response.".to_string()
     } else {
-        screen_summary
+        normalize_screen_summary(&screen_summary)
     };
     let clean_answer = if answer.is_empty() {
         "I could not parse a strict JSON answer from this provider response. Please retry once or switch to a different model.".to_string()
@@ -409,7 +409,7 @@ fn assistant_response_from_value(value: Value) -> Result<AssistantResponse> {
     Ok(AssistantResponse {
         screen_summary: clean_summary,
         answer: clean_answer,
-        suggested_next_steps,
+        suggested_next_steps: normalize_suggested_next_steps(suggested_next_steps),
         questions_to_clarify,
         confidence,
     })
@@ -483,4 +483,53 @@ fn fallback_response_from_text(text: &str) -> AssistantResponse {
         questions_to_clarify: vec![],
         confidence: 0.2,
     }
+}
+
+fn normalize_screen_summary(raw: &str) -> String {
+    let mut compact = raw
+        .replace('\r', " ")
+        .replace('\n', " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    if let Some(first_sentence) = compact.split('.').next() {
+        compact = first_sentence.trim().to_string();
+    }
+
+    if compact.len() > 90 {
+        compact.truncate(90);
+        compact = compact.trim_end().to_string();
+    }
+
+    compact
+}
+
+fn normalize_suggested_next_steps(steps: Vec<String>) -> Vec<String> {
+    let banned_prefixes = [
+        "if you want",
+        "if you'd like",
+        "if you would like",
+        "i can",
+        "i could",
+        "let me",
+    ];
+
+    steps
+        .into_iter()
+        .map(|step| {
+            let mut normalized = step.trim().to_string();
+            let lowered = normalized.to_lowercase();
+            for prefix in banned_prefixes {
+                if lowered.starts_with(prefix) {
+                    normalized = normalized[prefix.len()..].trim_start_matches(|c: char| {
+                        c == ',' || c == ':' || c == ';' || c == '-' || c.is_whitespace()
+                    }).to_string();
+                    break;
+                }
+            }
+            normalized
+        })
+        .filter(|step| !step.is_empty())
+        .collect()
 }
