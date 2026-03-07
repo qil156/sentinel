@@ -7,6 +7,33 @@ import type {
   UserLlmSettings
 } from "../../shared/types";
 
+type Conversation = {
+  id: string;
+  title: string;
+  messages: ChatMessage[];
+  createdAt: number;
+  updatedAt: number;
+};
+
+function createConversation(): Conversation {
+  const now = Date.now();
+  return {
+    id: crypto.randomUUID(),
+    title: "New chat",
+    messages: [],
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
+function conversationTitleFromQuestion(question: string): string {
+  const cleaned = question.trim().replace(/\s+/g, " ");
+  if (!cleaned) {
+    return "New chat";
+  }
+  return cleaned.length > 36 ? `${cleaned.slice(0, 36)}...` : cleaned;
+}
+
 export function App() {
   const formRef = useRef<HTMLFormElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
@@ -16,8 +43,12 @@ export function App() {
   const [settings, setSettings] = useState<UserLlmSettings | null>(null);
   const [isSavingApiKey, setIsSavingApiKey] = useState(false);
   const [showApiKeyPanel, setShowApiKeyPanel] = useState(false);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [conversations, setConversations] = useState<Conversation[]>(() => [createConversation()]);
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [showHistoryPanel, setShowHistoryPanel] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingConversationId, setLoadingConversationId] = useState<string | null>(null);
+  const [animatedAssistantMessageId, setAnimatedAssistantMessageId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const providerOptions = useMemo(() => {
@@ -41,6 +72,11 @@ export function App() {
     () => options.filter((opt) => opt.provider_id === settings?.selected_provider),
     [options, settings?.selected_provider]
   );
+  const activeConversation = useMemo(
+    () => conversations.find((conversation) => conversation.id === activeConversationId) ?? conversations[0] ?? null,
+    [conversations, activeConversationId]
+  );
+  const activeMessages = activeConversation?.messages ?? [];
 
   useEffect(() => {
     async function boot() {
@@ -66,8 +102,24 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (!activeConversationId && conversations.length > 0) {
+      setActiveConversationId(conversations[0].id);
+    }
+  }, [activeConversationId, conversations]);
+
+  useEffect(() => {
     scrollMessagesToBottom();
-  }, [messages]);
+  }, [activeMessages]);
+
+  useEffect(() => {
+    if (!activeConversationId) {
+      return;
+    }
+    const raf = window.requestAnimationFrame(() => {
+      scrollMessagesToBottom();
+    });
+    return () => window.cancelAnimationFrame(raf);
+  }, [activeConversationId]);
 
   useEffect(() => {
     if (!isLoading) {
@@ -86,12 +138,13 @@ export function App() {
 
   async function sendQuestion(rawQuestion: string) {
     const trimmed = rawQuestion.trim();
-    if (!trimmed || isLoading || !settings?.has_selected_provider_key) {
+    if (!trimmed || isLoading || !settings?.has_selected_provider_key || !activeConversation) {
       return;
     }
 
     setError(null);
     setIsLoading(true);
+    setLoadingConversationId(activeConversation.id);
 
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -99,7 +152,24 @@ export function App() {
       text: trimmed
     };
 
-    setMessages((current) => [...current, userMessage]);
+    const conversationId = activeConversation.id;
+    setConversations((current) =>
+      current.map((conversation) => {
+        if (conversation.id !== conversationId) {
+          return conversation;
+        }
+        const nextMessages = [...conversation.messages, userMessage];
+        return {
+          ...conversation,
+          title:
+            conversation.messages.length === 0
+              ? conversationTitleFromQuestion(trimmed)
+              : conversation.title,
+          messages: nextMessages,
+          updatedAt: Date.now()
+        };
+      })
+    );
     setQuestion("");
 
     try {
@@ -107,14 +177,24 @@ export function App() {
         question: trimmed
       });
 
-      setMessages((current) => [
-        ...current,
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          response
-        }
-      ]);
+      const assistantMessage: ChatMessage = {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        response
+      };
+      setConversations((current) =>
+        current.map((conversation) => {
+          if (conversation.id !== conversationId) {
+            return conversation;
+          }
+          return {
+            ...conversation,
+            messages: [...conversation.messages, assistantMessage],
+            updatedAt: Date.now()
+          };
+        })
+      );
+      setAnimatedAssistantMessageId(assistantMessage.id);
     } catch (invokeError) {
       const message = toDisplayError(
         invokeError instanceof Error
@@ -126,12 +206,43 @@ export function App() {
       setError(message);
     } finally {
       setIsLoading(false);
+      setLoadingConversationId(null);
     }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     await sendQuestion(question);
+  }
+
+  function handleNewChat() {
+    if (isLoading) {
+      return;
+    }
+    if (activeConversation && activeConversation.messages.length === 0) {
+      setQuestion("");
+      setError(null);
+      setShowHistoryPanel(false);
+      return;
+    }
+    const created = createConversation();
+    setConversations((current) => [created, ...current]);
+    setActiveConversationId(created.id);
+    setQuestion("");
+    setError(null);
+    setShowHistoryPanel(false);
+  }
+
+  function handleSelectConversation(conversationId: string) {
+    if (activeConversation && activeConversation.messages.length === 0 && activeConversation.id !== conversationId) {
+      setConversations((current) =>
+        current.filter((conversation) => conversation.id !== activeConversation.id)
+      );
+    }
+    setAnimatedAssistantMessageId(null);
+    setActiveConversationId(conversationId);
+    setShowHistoryPanel(false);
+    setError(null);
   }
 
   async function handleProviderChange(provider: string) {
@@ -214,6 +325,14 @@ export function App() {
     }
   }
 
+  const historyItems = useMemo(
+    () =>
+      conversations
+        .filter((conversation) => conversation.messages.length > 0)
+        .sort((a, b) => b.updatedAt - a.updatedAt),
+    [conversations]
+  );
+
   return (
     <main className="shell">
       <section className="widget">
@@ -223,6 +342,36 @@ export function App() {
             <h1>Sentinel</h1>
           </div>
           <div className="header-actions">
+            <div className="history-wrap">
+              <button
+                className="api-key-toggle"
+                onClick={() => setShowHistoryPanel((open) => !open)}
+                type="button"
+              >
+                History
+              </button>
+              {showHistoryPanel ? (
+                <div className="history-panel">
+                  {historyItems.length === 0 ? (
+                    <p className="history-empty">No chats yet.</p>
+                  ) : (
+                    historyItems.map((conversation) => (
+                      <button
+                        className={`history-item ${conversation.id === activeConversation?.id ? "active" : ""}`}
+                        key={conversation.id}
+                        onClick={() => handleSelectConversation(conversation.id)}
+                        type="button"
+                      >
+                        {conversation.title}
+                      </button>
+                    ))
+                  )}
+                </div>
+              ) : null}
+            </div>
+            <button className="api-key-toggle" disabled={isLoading} onClick={handleNewChat} type="button">
+              New Chat
+            </button>
             <button className="api-key-toggle" onClick={() => setShowApiKeyPanel((v) => !v)} type="button">
               Settings
             </button>
@@ -280,13 +429,13 @@ export function App() {
         ) : null}
 
         <div className="messages" ref={messagesRef}>
-          {messages.length === 0 ? (
+          {activeMessages.length === 0 ? (
             <div className="empty-state">
               Ask about the active window. Sentinel will capture the foreground window and answer using the visible
               screen context.
             </div>
           ) : (
-            messages.map((message) =>
+            activeMessages.map((message) =>
               message.role === "user" ? (
                 <article className="bubble bubble-user" key={message.id}>
                   {message.text}
@@ -295,12 +444,13 @@ export function App() {
                 <article className="bubble bubble-assistant" key={message.id}>
                   <StructuredResponseCard
                     response={message.response}
+                    animate={message.id === animatedAssistantMessageId}
                   />
                 </article>
               )
             )
           )}
-          {isLoading ? (
+          {isLoading && loadingConversationId === activeConversation?.id ? (
             <article className="bubble bubble-assistant loading-bubble">
               <div className="loading-dots" aria-label="Loading answer" role="status">
                 <span />
@@ -347,9 +497,11 @@ function toDisplayError(raw: string): string {
 }
 
 function StructuredResponseCard({
-  response
+  response,
+  animate
 }: {
   response: AssistantResponse;
+  animate: boolean;
 }) {
   const [animatedSummary, setAnimatedSummary] = useState("");
   const [animatedAnswer, setAnimatedAnswer] = useState("");
@@ -363,6 +515,15 @@ function StructuredResponseCard({
     const steps = response.suggested_next_steps ?? [];
     const questions = response.questions_to_clarify ?? [];
     const targetConfidence = Math.round((response.confidence ?? 0) * 100);
+
+    if (!animate) {
+      setAnimatedSummary(summary);
+      setAnimatedAnswer(full);
+      setVisibleStepCount(steps.length);
+      setVisibleQuestionCount(questions.length);
+      setAnimatedConfidence(targetConfidence);
+      return;
+    }
 
     setAnimatedSummary("");
     setAnimatedAnswer("");
@@ -434,7 +595,7 @@ function StructuredResponseCard({
     }, 24);
 
     return () => window.clearInterval(timer);
-  }, [response]);
+  }, [response, animate]);
 
   return (
     <div className="response-card">
