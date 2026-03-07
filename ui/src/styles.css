@@ -62,6 +62,51 @@ select {
   gap: 8px;
 }
 
+.history-wrap {
+  position: relative;
+}
+
+.history-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 220px;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid rgba(216, 225, 234, 0.16);
+  border-radius: 12px;
+  background: rgba(10, 18, 28, 0.97);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.35);
+  z-index: 30;
+  padding: 8px;
+}
+
+.history-empty {
+  margin: 0;
+  font-size: 12px;
+  color: #bdd4e8;
+  padding: 8px;
+}
+
+.history-item {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: #d8e1ea;
+  background: transparent;
+  cursor: pointer;
+}
+
+.history-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.history-item.active {
+  background: rgba(124, 183, 255, 0.18);
+}
+
 .widget-header h1,
 .widget-header p {
   margin: 0;
