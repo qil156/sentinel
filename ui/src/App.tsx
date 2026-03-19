@@ -3,6 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AssistantResponse,
   ChatMessage,
+  ConversationContext,
+  ConversationTurn,
   ProviderModelOption,
   UserLlmSettings
 } from "../../shared/types";
@@ -11,9 +13,30 @@ type Conversation = {
   id: string;
   title: string;
   messages: ChatMessage[];
+  memory: ConversationMemory;
   createdAt: number;
   updatedAt: number;
 };
+
+type ConversationMemory = {
+  conversationSummary: string;
+  taskGoal: string;
+  currentPage: string;
+  knownFacts: string[];
+  openQuestions: string[];
+  lastRecommendedSteps: string[];
+};
+
+function createEmptyMemory(): ConversationMemory {
+  return {
+    conversationSummary: "",
+    taskGoal: "",
+    currentPage: "",
+    knownFacts: [],
+    openQuestions: [],
+    lastRecommendedSteps: []
+  };
+}
 
 function createConversation(): Conversation {
   const now = Date.now();
@@ -21,6 +44,7 @@ function createConversation(): Conversation {
     id: crypto.randomUUID(),
     title: "New chat",
     messages: [],
+    memory: createEmptyMemory(),
     createdAt: now,
     updatedAt: now
   };
@@ -32,6 +56,114 @@ function conversationTitleFromQuestion(question: string): string {
     return "New chat";
   }
   return cleaned.length > 36 ? `${cleaned.slice(0, 36)}...` : cleaned;
+}
+
+function chatMessageToTurn(message: ChatMessage): ConversationTurn {
+  if (message.role === "user") {
+    return {
+      role: "user",
+      content: message.text
+    };
+  }
+
+  return {
+    role: "assistant",
+    content: [
+      `Screen summary: ${message.response.screen_summary}`,
+      `Answer: ${message.response.answer}`,
+      message.response.suggested_next_steps.length > 0
+        ? `Suggested next steps: ${message.response.suggested_next_steps.join("; ")}`
+        : "",
+      message.response.questions_to_clarify.length > 0
+        ? `Questions to clarify: ${message.response.questions_to_clarify.join("; ")}`
+        : ""
+    ]
+      .filter(Boolean)
+      .join("\n")
+  };
+}
+
+function extractKeyFacts(answer: string): string[] {
+  return answer
+    .split(/(?<=[.!?])\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+}
+
+function dedupePreserveOrder(items: string[]): string[] {
+  const seen = new Set<string>();
+  const output: string[] = [];
+  for (const item of items) {
+    const normalized = item.trim();
+    if (!normalized) {
+      continue;
+    }
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    output.push(normalized);
+  }
+  return output;
+}
+
+function buildConversationSummary(
+  previousSummary: string,
+  userQuestion: string,
+  response: AssistantResponse
+): string {
+  const sections = [
+    previousSummary.trim(),
+    `User asked: ${userQuestion.trim()}`,
+    response.screen_summary ? `Current page: ${response.screen_summary}` : "",
+    response.answer ? `Latest answer: ${response.answer}` : ""
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return sections.length > 700 ? `${sections.slice(sections.length - 700)}` : sections;
+}
+
+function updateConversationMemory(
+  current: ConversationMemory,
+  userQuestion: string,
+  response: AssistantResponse
+): ConversationMemory {
+  const taskGoal = current.taskGoal || userQuestion.trim();
+  const currentPage = response.screen_summary.trim() || current.currentPage;
+  const knownFacts = dedupePreserveOrder([
+    currentPage,
+    ...current.knownFacts,
+    ...extractKeyFacts(response.answer)
+  ]).slice(0, 8);
+
+  return {
+    conversationSummary: buildConversationSummary(current.conversationSummary, userQuestion, response),
+    taskGoal,
+    currentPage,
+    knownFacts,
+    openQuestions: dedupePreserveOrder(response.questions_to_clarify).slice(0, 5),
+    lastRecommendedSteps: dedupePreserveOrder(response.suggested_next_steps).slice(0, 5)
+  };
+}
+
+function buildConversationContext(conversation: Conversation): ConversationContext {
+  const messages = conversation.messages;
+  const turns = messages.map(chatMessageToTurn);
+  const recentTurnLimit = 8;
+  const recentMessages = turns.slice(-recentTurnLimit);
+
+  return {
+    conversation_summary: conversation.memory.conversationSummary,
+    task_goal: conversation.memory.taskGoal,
+    current_page: conversation.memory.currentPage,
+    known_facts: conversation.memory.knownFacts,
+    open_questions: conversation.memory.openQuestions,
+    last_recommended_steps: conversation.memory.lastRecommendedSteps,
+    recent_messages: recentMessages
+  };
 }
 
 export function App() {
@@ -173,8 +305,10 @@ export function App() {
     setQuestion("");
 
     try {
+      const conversationContext = buildConversationContext(activeConversation);
       const response = await invoke<AssistantResponse>("ask_about_screen", {
-        question: trimmed
+        question: trimmed,
+        conversationContext
       });
 
       const assistantMessage: ChatMessage = {
@@ -190,6 +324,7 @@ export function App() {
           return {
             ...conversation,
             messages: [...conversation.messages, assistantMessage],
+            memory: updateConversationMemory(conversation.memory, trimmed, response),
             updatedAt: Date.now()
           };
         })

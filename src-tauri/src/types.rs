@@ -9,6 +9,23 @@ pub struct AssistantResponse {
     pub confidence: f32,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConversationTurn {
+    pub role: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConversationContext {
+    pub conversation_summary: String,
+    pub task_goal: String,
+    pub current_page: String,
+    pub known_facts: Vec<String>,
+    pub open_questions: Vec<String>,
+    pub last_recommended_steps: Vec<String>,
+    pub recent_messages: Vec<ConversationTurn>,
+}
+
 #[derive(Debug, Clone)]
 pub struct ScreenContext {
     pub window_title: String,

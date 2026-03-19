@@ -12,7 +12,7 @@ use crate::api_key::{
 use crate::context::build_screen_context;
 use crate::llm::ask_with_provider;
 use crate::platform::ExclusionRect;
-use crate::types::{AssistantResponse, ProviderModelOption, UserLlmSettings};
+use crate::types::{AssistantResponse, ConversationContext, ProviderModelOption, UserLlmSettings};
 use std::time::Duration;
 use tauri::{Manager, PhysicalPosition, Position, WindowEvent};
 
@@ -21,6 +21,7 @@ async fn ask_about_screen(
     app: tauri::AppHandle,
     window: tauri::WebviewWindow,
     question: String,
+    conversation_context: ConversationContext,
 ) -> Result<AssistantResponse, String> {
     // Validate provider/model/key first so auth/config errors are not masked by capture errors.
     let (provider, model, api_key) = resolve_active_config(&app).map_err(|err| err.to_string())?;
@@ -28,7 +29,14 @@ async fn ask_about_screen(
     let exclusions: Vec<ExclusionRect> = sentinel_window_rect(&window).into_iter().collect();
     let screen_context = build_screen_context(&exclusions).map_err(|err| err.to_string())?;
 
-    ask_with_provider(&provider, &model, &question, &screen_context, &api_key)
+    ask_with_provider(
+        &provider,
+        &model,
+        &question,
+        &conversation_context,
+        &screen_context,
+        &api_key,
+    )
         .await
         .map_err(|err| err.to_string())
 }

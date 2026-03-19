@@ -3,8 +3,8 @@ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde_json::{json, Value};
 
 use crate::types::{
-    AssistantResponse, OpenAiContentItem, OpenAiInputItem, OpenAiJsonSchemaFormat, OpenAiRequest, OpenAiTextConfig,
-    ScreenContext,
+    AssistantResponse, ConversationContext, OpenAiContentItem, OpenAiInputItem, OpenAiJsonSchemaFormat, OpenAiRequest,
+    OpenAiTextConfig, ScreenContext,
 };
 
 const OPENAI_API_URL: &str = "https://api.openai.com/v1/responses";
@@ -16,19 +16,26 @@ pub async fn ask_with_provider(
     provider: &str,
     model: &str,
     question: &str,
+    conversation_context: &ConversationContext,
     context: &ScreenContext,
     api_key: &str,
 ) -> Result<AssistantResponse> {
     match provider {
-        "openai" => ask_openai(model, question, context, api_key).await,
-        "anthropic" => ask_anthropic(model, question, context, api_key).await,
-        "google" => ask_gemini(model, question, context, api_key).await,
-        "deepseek" => ask_deepseek(model, question, context, api_key).await,
+        "openai" => ask_openai(model, question, conversation_context, context, api_key).await,
+        "anthropic" => ask_anthropic(model, question, conversation_context, context, api_key).await,
+        "google" => ask_gemini(model, question, conversation_context, context, api_key).await,
+        "deepseek" => ask_deepseek(model, question, conversation_context, context, api_key).await,
         _ => Err(anyhow!("Unsupported provider: {provider}")),
     }
 }
 
-async fn ask_openai(model: &str, question: &str, context: &ScreenContext, api_key: &str) -> Result<AssistantResponse> {
+async fn ask_openai(
+    model: &str,
+    question: &str,
+    conversation_context: &ConversationContext,
+    context: &ScreenContext,
+    api_key: &str,
+) -> Result<AssistantResponse> {
     let client = reqwest::Client::new();
 
     let payload = OpenAiRequest {
@@ -44,7 +51,7 @@ async fn ask_openai(model: &str, question: &str, context: &ScreenContext, api_ke
                 role: "user".to_string(),
                 content: vec![
                     OpenAiContentItem::InputText {
-                        text: user_prompt(question, &context.window_title),
+                        text: user_prompt(question, conversation_context, &context.window_title),
                     },
                     OpenAiContentItem::InputImage {
                         image_url: format!("data:image/png;base64,{}", context.image_base64),
@@ -86,6 +93,7 @@ async fn ask_openai(model: &str, question: &str, context: &ScreenContext, api_ke
 async fn ask_anthropic(
     model: &str,
     question: &str,
+    conversation_context: &ConversationContext,
     context: &ScreenContext,
     api_key: &str,
 ) -> Result<AssistantResponse> {
@@ -97,7 +105,7 @@ async fn ask_anthropic(
       "messages": [{
         "role": "user",
         "content": [
-          { "type": "text", "text": user_prompt(question, &context.window_title) + "\n\nReturn ONLY valid JSON that matches the schema." },
+          { "type": "text", "text": user_prompt(question, conversation_context, &context.window_title) + "\n\nReturn ONLY valid JSON that matches the schema." },
           { "type": "image", "source": { "type": "base64", "media_type": "image/png", "data": context.image_base64 } }
         ]
       }]
@@ -143,7 +151,13 @@ async fn ask_anthropic(
     parse_json_response_text(text)
 }
 
-async fn ask_gemini(model: &str, question: &str, context: &ScreenContext, api_key: &str) -> Result<AssistantResponse> {
+async fn ask_gemini(
+    model: &str,
+    question: &str,
+    conversation_context: &ConversationContext,
+    context: &ScreenContext,
+    api_key: &str,
+) -> Result<AssistantResponse> {
     let client = reqwest::Client::new();
     let url = format!("{GEMINI_API_BASE}/{model}:generateContent?key={api_key}");
     let payload = json!({
@@ -153,7 +167,7 @@ async fn ask_gemini(model: &str, question: &str, context: &ScreenContext, api_ke
       "contents": [{
         "role": "user",
         "parts": [
-          { "text": user_prompt(question, &context.window_title) },
+          { "text": user_prompt(question, conversation_context, &context.window_title) },
           { "inline_data": { "mime_type": "image/png", "data": context.image_base64 } }
         ]
       }],
@@ -195,7 +209,13 @@ async fn ask_gemini(model: &str, question: &str, context: &ScreenContext, api_ke
     parse_json_response_text(text)
 }
 
-async fn ask_deepseek(model: &str, question: &str, context: &ScreenContext, api_key: &str) -> Result<AssistantResponse> {
+async fn ask_deepseek(
+    model: &str,
+    question: &str,
+    conversation_context: &ConversationContext,
+    context: &ScreenContext,
+    api_key: &str,
+) -> Result<AssistantResponse> {
     let client = reqwest::Client::new();
     let payload = json!({
       "model": model,
@@ -206,7 +226,7 @@ async fn ask_deepseek(model: &str, question: &str, context: &ScreenContext, api_
           "role": "user",
           "content": format!(
             "{}\n\nNote: DeepSeek model '{}' in this build is called without image attachment, so screen analysis confidence should be lower.",
-            user_prompt(question, &context.window_title),
+            user_prompt(question, conversation_context, &context.window_title),
             model
           )
         }
@@ -348,9 +368,54 @@ fn system_prompt() -> &'static str {
     "You are Sentinel, a Windows desktop assistant that answers questions about the current screen. You only observe the provided screenshot and window title. You never take actions. Return JSON matching the required schema.\n\nFormatting rules:\n- screen_summary: one short sentence naming only the current page type (for example: email inbox, CI pipeline page, spreadsheet, chart dashboard).\n- answer: concise and factual, grounded only in visible UI evidence.\n- suggested_next_steps: direct imperative actions the user can do next. Do NOT use assistant-offer language such as 'if you want, I can...'.\n- questions_to_clarify: only include if needed.\n- confidence: 0 to 1."
 }
 
-fn user_prompt(question: &str, window_title: &str) -> String {
+fn user_prompt(question: &str, conversation_context: &ConversationContext, window_title: &str) -> String {
+    let task_goal = if conversation_context.task_goal.trim().is_empty() {
+        "None".to_string()
+    } else {
+        conversation_context.task_goal.trim().to_string()
+    };
+    let current_page = if conversation_context.current_page.trim().is_empty() {
+        "None".to_string()
+    } else {
+        conversation_context.current_page.trim().to_string()
+    };
+    let known_facts = if conversation_context.known_facts.is_empty() {
+        "None".to_string()
+    } else {
+        conversation_context.known_facts.join("\n- ")
+    };
+    let open_questions = if conversation_context.open_questions.is_empty() {
+        "None".to_string()
+    } else {
+        conversation_context.open_questions.join("\n- ")
+    };
+    let last_recommended_steps = if conversation_context.last_recommended_steps.is_empty() {
+        "None".to_string()
+    } else {
+        conversation_context.last_recommended_steps.join("\n- ")
+    };
+    let recent_messages = if conversation_context.recent_messages.is_empty() {
+        "None".to_string()
+    } else {
+        conversation_context
+            .recent_messages
+            .iter()
+            .map(|message| {
+                let role = if message.role == "assistant" { "Assistant" } else { "User" };
+                format!("{role}: {}", message.content)
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    let summary = if conversation_context.conversation_summary.trim().is_empty() {
+        "None".to_string()
+    } else {
+        conversation_context.conversation_summary.trim().to_string()
+    };
+
     format!(
-        "Window title: {window_title}\n\nUser question: {question}\n\nUse only the screenshot and the user question as context. Do not claim to have clicked, typed, or changed anything on the computer."
+        "Conversation memory:\nTask goal: {task_goal}\nCurrent page: {current_page}\nKnown facts:\n- {known_facts}\nOpen questions:\n- {open_questions}\nLast recommended steps:\n- {last_recommended_steps}\n\nConversation summary:\n{summary}\n\nRecent conversation:\n{recent_messages}\n\nCurrent window title: {window_title}\n\nCurrent user question: {question}\n\nTreat the current question as a continuation of the conversation when the prior turns are relevant. Use the screenshot, current question, structured conversation memory, and recent messages together. Prefer continuity with the current task unless the user clearly starts a new one. Do not claim to have clicked, typed, or changed anything on the computer."
     )
 }
 

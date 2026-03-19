@@ -31,3 +31,18 @@ export type ChatMessage =
       role: "assistant";
       response: AssistantResponse;
     };
+
+export type ConversationTurn = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type ConversationContext = {
+  conversation_summary: string;
+  task_goal: string;
+  current_page: string;
+  known_facts: string[];
+  open_questions: string[];
+  last_recommended_steps: string[];
+  recent_messages: ConversationTurn[];
+};
